@@ -1,50 +1,53 @@
 import streamlit as st
-from openai import OpenAI
+import openai
 import os
 import tempfile
 
-# 🔐 Ustawienie klucza API z Render (Environment Variables)
-client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+openai.api_key = os.environ.get("OPENAI_API_KEY")
 
 st.title("🎙️ AI Asystent Sprzedaży Energii")
-st.write("Nagraj rozmowę lub wgraj plik audio. Asystent stworzy transkrypcję i zaproponuje pytania oraz działania.")
+st.write("Nagraj rozmowę lub wgraj plik audio. Asystent stworzy pytania, coaching i follow-up.")
 
 audio_file = st.file_uploader("📤 Wgraj plik audio (MP3/WAV)", type=["mp3", "wav"])
 
 if audio_file is not None:
-    # Zapisz plik tymczasowo
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_file:
+    with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
         tmp_file.write(audio_file.read())
         tmp_file_path = tmp_file.name
 
     with st.spinner("🔍 Przetwarzam nagranie..."):
         with open(tmp_file_path, "rb") as audio:
-            transcript_response = client.audio.transcriptions.create(
+            transcript_response = openai.audio.transcriptions.create(
                 model="whisper-1",
                 file=audio
             )
         transcript = transcript_response.text
 
-        # Prompt dla ChatGPT
-        prompt = f"""Jesteś AI-asystentem handlowca. Analizujesz rozmowę z klientem.
+        prompt = f"""
 Na podstawie poniższej rozmowy:
-- Jakie są potrzeby klienta?
-- Jakie pytania warto zadać?
-- Jakie działania follow-up zaproponować?
+
+1. Wygeneruj 2–3 trafne pytania, które handlowiec powinien zadać klientowi (max 300 znaków każde).
+2. Daj 1–2 wskazówki coachingowe dla handlowca (np. "mów wolniej", "pogłęb temat").
+3. Zaproponuj działania follow-up.
 
 Rozmowa:
 {transcript}
 """
 
-        chat_response = client.chat.completions.create(
+        completion = openai.chat.completions.create(
             model="gpt-4",
             messages=[{"role": "user", "content": prompt}]
         )
-        suggestions = chat_response.choices[0].message.content
 
-    # Wyświetl wyniki
-    st.subheader("📝 Transkrypcja rozmowy")
-    st.write(transcript)
+        result = completion.choices[0].message.content
 
-    st.subheader("💡 Sugestie AI")
-    st.write(suggestions)
+    # --- Wyświetlanie bez transkrypcji ---
+    st.subheader("💬 Sugestie pytań do klienta")
+    st.markdown(result.split("2.")[0].strip())
+
+    st.subheader("🎯 Coaching AI dla handlowca")
+    st.markdown(result.split("2.")[1].split("3.")[0].strip())
+
+    st.subheader("📩 Propozycje follow-up")
+    st.markdown(result.split("3.")[1].strip())
+
