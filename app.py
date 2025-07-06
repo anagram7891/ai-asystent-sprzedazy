@@ -3,96 +3,49 @@ import openai
 import os
 import tempfile
 from streamlit_webrtc import webrtc_streamer, WebRtcMode
-import av
-import queue
-import time
+import asyncio
+import streamlit.components.v1 as components
 
-# 🔑 Ustaw klucz z Render ENV vars
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
-# 🔊 Tytuł aplikacji
-st.title("🎙️ AI Asystent Sprzedaży B2B")
-st.write("Nagraj rozmowę w przeglądarce. Asystent stworzy pytania, coaching i follow-up.")
+st.set_page_config(page_title="AI Asystent Sprzedaży", layout="centered")
+st.title("🎙️ AI Asystent Sprzedaży Energii")
 
-# Kolejka i procesor audio
-audio_buffer = queue.Queue()
+st.markdown("**Nagraj rozmowę. AI zaproponuje pytania, coaching i follow-up.**")
 
-class AudioProcessor:
-    def __init__(self):
-        self.recording = False
-        self.audio_frames = []
+uploaded_file = st.file_uploader("📤 Wgraj plik audio (MP3/WAV)", type=["mp3", "wav"])
 
-    def recv(self, frame: av.AudioFrame):
-        if self.recording:
-            self.audio_frames.append(frame)
-        return frame
+if uploaded_file:
+    with st.spinner("🔎 Przesyłanie do OpenAI..."):
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_file:
+            tmp_file.write(uploaded_file.read())
+            tmp_path = tmp_file.name
 
-processor = AudioProcessor()
+        with open(tmp_path, "rb") as audio_file:
+            transcript_response = openai.audio.transcriptions.create(
+                model="whisper-1",
+                file=audio_file
+            )
+            transcript = transcript_response.text
 
-# WebRTC
-webrtc_ctx = webrtc_streamer(
-    key="audio",
-    mode=WebRtcMode.SENDONLY,
-    audio_frame_callback=processor.recv,
-    media_stream_constraints={"audio": True, "video": False}
-)
-
-# ⏺️ Przyciski nagrywania
-if webrtc_ctx.state.playing:
-    if st.button("⏺️ Rozpocznij nagrywanie"):
-        processor.recording = True
-        processor.audio_frames = []
-        st.session_state["recording_started"] = time.time()
-
-    if st.button("⏹️ Zatrzymaj nagrywanie i prześlij"):
-        processor.recording = False
-
-        if processor.audio_frames:
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as f:
-                container = av.open(f.name, mode='w', format='wav')
-                stream = container.add_stream("pcm_s16le", rate=processor.audio_frames[0].sample_rate)
-                stream.channels = processor.audio_frames[0].layout.channels
-
-                for frame in processor.audio_frames:
-                    frame.pts = None
-                    container.mux(stream.encode(frame))
-                container.mux(stream.encode())
-                container.close()
-                audio_path = f.name
-
-            # 📤 Prześlij audio do OpenAI Whisper
-            with st.spinner("⏳ Przesyłam do AI..."):
-                with open(audio_path, "rb") as audio_file:
-                    transcript_response = openai.audio.transcriptions.create(
-                        model="whisper-1",
-                        file=audio_file
-                    )
-                    transcript = transcript_response.text
-
-            # 🧠 Prompt do GPT
-            prompt = f"""
-Jesteś AI-asystentem handlowca. Analizujesz rozmowę z klientem.
-
+        prompt = f"""
+Jesteś AI-asystentem sprzedaży B2B w branży energii. 
 Na podstawie rozmowy:
+
 1. Podaj 2–3 pytania, które warto zadać klientowi.
-2. Zasugeruj 1 konkretną zmianę w zachowaniu handlowca (coaching).
+2. Zasugeruj jedną zmianę w zachowaniu handlowca (coaching).
 3. Zasugeruj działanie follow-up.
 
-Rozmowa:
+Rozmowa klienta:
 {transcript}
 """
 
-            completion = openai.chat.completions.create(
-                model="gpt-4",
-                messages=[{"role": "user", "content": prompt}]
-            )
+        completion = openai.chat.completions.create(
+            model="gpt-4",
+            messages=[{"role": "user", "content": prompt}]
+        )
+        result = completion.choices[0].message.content
 
-            result = completion.choices[0].message.content
-
-            # ✅ Wyniki
-            st.success("Gotowe!")
-            st.markdown("### 💡 Sugestie AI")
-            st.write(result)
-
-        else:
-            st.warning("Brak nagranego dźwięku.")
+    st.success("✅ Gotowe! Zobacz sugestie poniżej:")
+    st.markdown("### 💬 Pytania do klienta, coaching i follow-up:")
+    st.write(result)
