@@ -1,49 +1,47 @@
 import streamlit as st
-from st_audiorec import st_audiorec
 import openai
 import os
 import tempfile
 
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
-st.title("🎙️ AI Asystent Sprzedaży B2B")
-st.write("Nagraj rozmowę z klientem – otrzymasz 2–3 pytania, coaching i follow-up.")
+st.title("🎙️ AI Asystent Sprzedaży Energii B2B")
+st.write("Wgraj nagranie rozmowy z klientem. Asystent podpowie pytania, coaching i follow-up.")
 
-wav_audio_data = st_audiorec()
+# Upload audio
+audio_file = st.file_uploader("📤 Wgraj nagranie rozmowy (MP3 lub WAV)", type=["mp3", "wav"])
 
-if wav_audio_data is not None:
-    st.audio(wav_audio_data, format='audio/wav')
+if audio_file is not None:
+    with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
+        tmp_file.write(audio_file.read())
+        audio_path = tmp_file.name
 
-    with st.spinner("🧠 Przesyłanie do AI..."):
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-            f.write(wav_audio_data)
-            f_path = f.name
-
-        with open(f_path, "rb") as audio_file:
-            transcript_response = openai.audio.transcriptions.create(
+    with st.spinner("⏳ Analiza rozmowy..."):
+        # Transkrypcja
+        with open(audio_path, "rb") as f:
+            transcript = openai.audio.transcriptions.create(
                 model="whisper-1",
-                file=audio_file
-            )
-            transcript = transcript_response.text
+                file=f
+            ).text
 
+        # Zapytanie do GPT
         prompt = f"""
 Jesteś AI-asystentem handlowca. Analizujesz rozmowę z klientem.
 
 Na podstawie rozmowy:
-1. Podaj 2–3 pytania, które warto teraz zadać klientowi.
-2. Zasugeruj 1 konkretną poprawę w zachowaniu handlowca (coaching).
-3. Zaproponuj działanie follow-up.
+1. Podaj 2–3 pytania, które warto zadać klientowi.
+2. Zasugeruj 1 konkretną zmianę w zachowaniu handlowca (coaching).
+3. Zasugeruj działanie follow-up.
 
 Rozmowa:
 {transcript}
 """
 
-        completion = openai.chat.completions.create(
+        response = openai.chat.completions.create(
             model="gpt-4",
             messages=[{"role": "user", "content": prompt}]
         )
-        result = completion.choices[0].message.content
 
         st.success("✅ Gotowe!")
-        st.markdown("### 💡 Sugestie AI:")
-        st.write(result)
+        st.markdown("### 💡 Pytania do klienta i coaching:")
+        st.markdown(response.choices[0].message.content)
