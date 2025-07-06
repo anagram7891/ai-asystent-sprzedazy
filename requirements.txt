@@ -1,4 +1,4 @@
 streamlit
 openai
-streamlit-webrtc
+streamlit-webrtc==0.45.0
 av
