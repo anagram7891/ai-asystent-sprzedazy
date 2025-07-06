@@ -2,26 +2,20 @@ import streamlit as st
 import openai
 import os
 import tempfile
-from streamlit_webrtc import webrtc_streamer, WebRtcMode, ClientSettings
+from streamlit_webrtc import webrtc_streamer, WebRtcMode
 import av
 import queue
 import time
 
-# Ustawienie klucza OpenAI
-client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+# 🔑 Ustaw klucz z Render ENV vars
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
-# Interfejs
+# 🔊 Tytuł aplikacji
 st.title("🎙️ AI Asystent Sprzedaży B2B")
 st.write("Nagraj rozmowę w przeglądarce. Asystent stworzy pytania, coaching i follow-up.")
 
-# Bufor audio
+# Kolejka i procesor audio
 audio_buffer = queue.Queue()
-
-# Konfiguracja WebRTC
-client_settings = ClientSettings(
-    media_stream_constraints={"audio": True, "video": False},
-    rtc_configuration={"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]},
-)
 
 class AudioProcessor:
     def __init__(self):
@@ -35,30 +29,28 @@ class AudioProcessor:
 
 processor = AudioProcessor()
 
-# Streamlit WebRTC
+# WebRTC
 webrtc_ctx = webrtc_streamer(
     key="audio",
     mode=WebRtcMode.SENDONLY,
-    in_audio_frame_callback=processor.recv,
-    client_settings=client_settings,
+    audio_frame_callback=processor.recv,
     media_stream_constraints={"audio": True, "video": False}
 )
 
+# ⏺️ Przyciski nagrywania
 if webrtc_ctx.state.playing:
     if st.button("⏺️ Rozpocznij nagrywanie"):
         processor.recording = True
         processor.audio_frames = []
         st.session_state["recording_started"] = time.time()
-        st.info("Nagrywanie rozpoczęte...")
 
     if st.button("⏹️ Zatrzymaj nagrywanie i prześlij"):
         processor.recording = False
 
         if processor.audio_frames:
-            # Zapis audio do pliku tymczasowego .wav
             with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as f:
                 container = av.open(f.name, mode='w', format='wav')
-                stream = container.add_stream('pcm_s16le', rate=processor.audio_frames[0].sample_rate)
+                stream = container.add_stream("pcm_s16le", rate=processor.audio_frames[0].sample_rate)
                 stream.channels = processor.audio_frames[0].layout.channels
 
                 for frame in processor.audio_frames:
@@ -68,18 +60,17 @@ if webrtc_ctx.state.playing:
                 container.close()
                 audio_path = f.name
 
-            # Transkrypcja
-            with st.spinner("⏳ Przesyłanie audio do transkrypcji..."):
+            # 📤 Prześlij audio do OpenAI Whisper
+            with st.spinner("⏳ Przesyłam do AI..."):
                 with open(audio_path, "rb") as audio_file:
-                    transcript_response = client.audio.transcriptions.create(
+                    transcript_response = openai.audio.transcriptions.create(
                         model="whisper-1",
                         file=audio_file
                     )
-                    transcript = transcript_response["text"]
+                    transcript = transcript_response.text
 
-            # Prompt do GPT-4
-            with st.spinner("🧠 Generuję sugestie AI..."):
-                prompt = f"""
+            # 🧠 Prompt do GPT
+            prompt = f"""
 Jesteś AI-asystentem handlowca. Analizujesz rozmowę z klientem.
 
 Na podstawie rozmowy:
@@ -91,15 +82,17 @@ Rozmowa:
 {transcript}
 """
 
-                completion = client.chat.completions.create(
-                    model="gpt-4",
-                    messages=[{"role": "user", "content": prompt}]
-                )
-                result = completion.choices[0].message.content
+            completion = openai.chat.completions.create(
+                model="gpt-4",
+                messages=[{"role": "user", "content": prompt}]
+            )
 
-            # Wyświetlenie wyniku
+            result = completion.choices[0].message.content
+
+            # ✅ Wyniki
             st.success("Gotowe!")
             st.markdown("### 💡 Sugestie AI")
             st.write(result)
+
         else:
-            st.warning("Brak danych audio do przetworzenia.")
+            st.warning("Brak nagranego dźwięku.")
