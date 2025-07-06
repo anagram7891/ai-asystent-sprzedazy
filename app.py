@@ -1,11 +1,10 @@
 import streamlit as st
-import openai
+from openai import OpenAI
 import os
 import tempfile
 
-# Ustawienie klucza API OpenAI (wprowadzisz go później w sekcji Secrets)
-import os
-openai.api_key = os.environ.get("OPENAI_API_KEY")
+# Ustawienie klienta OpenAI
+client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
 st.title("🎙️ AI Asystent Sprzedaży Energii")
 st.write("Nagraj rozmowę lub wgraj plik audio. Asystent stworzy transkrypcję i zaproponuje pytania oraz działania.")
@@ -19,9 +18,15 @@ if audio_file is not None:
 
     with st.spinner("🔍 Przetwarzam nagranie..."):
         audio = open(tmp_file_path, "rb")
-        transcript_response = openai.Audio.transcribe("whisper-1", audio)
-        transcript = transcript_response["text"]
 
+        # NOWE API OpenAI (transkrypcja)
+        transcript_response = client.audio.transcriptions.create(
+            model="whisper-1",
+            file=audio
+        )
+        transcript = transcript_response.text
+
+        # Prompt do GPT-4
         prompt = f"""Jesteś AI-asystentem handlowca. Analizujesz rozmowę z klientem.
 Na podstawie poniższej rozmowy:
 - Jakie są potrzeby klienta?
@@ -32,12 +37,12 @@ Rozmowa:
 {transcript}
 """
 
-        completion = openai.ChatCompletion.create(
+        completion = client.chat.completions.create(
             model="gpt-4",
             messages=[{"role": "user", "content": prompt}]
         )
 
-        suggestions = completion["choices"][0]["message"]["content"]
+        suggestions = completion.choices[0].message.content
 
     st.subheader("📝 Transkrypcja rozmowy")
     st.write(transcript)
