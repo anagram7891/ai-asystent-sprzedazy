@@ -4,7 +4,8 @@ import os
 import tempfile
 
 # Ustawienie klucza API OpenAI (wprowadzisz go później w sekcji Secrets)
-openai.api_key = st.secrets["OPENAI_API_KEY"]
+import os
+openai.api_key = os.environ.get("OPENAI_API_KEY")
 
 st.title("🎙️ AI Asystent Sprzedaży Energii")
 st.write("Nagraj rozmowę lub wgraj plik audio. Asystent stworzy transkrypcję i zaproponuje pytania oraz działania.")
