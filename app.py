@@ -5,17 +5,19 @@ import tempfile
 from streamlit_webrtc import webrtc_streamer, WebRtcMode, ClientSettings
 import av
 import queue
-import threading
 import time
 
-openai.api_key = os.getenv("OPENAI_API_KEY")
+# Ustawienie klucza OpenAI
+client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-st.title("🎙️ AI Asystent Sprzedaży Energii")
+# Interfejs
+st.title("🎙️ AI Asystent Sprzedaży B2B")
 st.write("Nagraj rozmowę w przeglądarce. Asystent stworzy pytania, coaching i follow-up.")
 
+# Bufor audio
 audio_buffer = queue.Queue()
 
-# Konfiguracja klienta WebRTC
+# Konfiguracja WebRTC
 client_settings = ClientSettings(
     media_stream_constraints={"audio": True, "video": False},
     rtc_configuration={"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]},
@@ -33,6 +35,7 @@ class AudioProcessor:
 
 processor = AudioProcessor()
 
+# Streamlit WebRTC
 webrtc_ctx = webrtc_streamer(
     key="audio",
     mode=WebRtcMode.SENDONLY,
@@ -46,53 +49,57 @@ if webrtc_ctx.state.playing:
         processor.recording = True
         processor.audio_frames = []
         st.session_state["recording_started"] = time.time()
+        st.info("Nagrywanie rozpoczęte...")
 
     if st.button("⏹️ Zatrzymaj nagrywanie i prześlij"):
         processor.recording = False
 
         if processor.audio_frames:
-            # Zapis do pliku WAV
+            # Zapis audio do pliku tymczasowego .wav
             with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as f:
                 container = av.open(f.name, mode='w', format='wav')
                 stream = container.add_stream('pcm_s16le', rate=processor.audio_frames[0].sample_rate)
                 stream.channels = processor.audio_frames[0].layout.channels
 
                 for frame in processor.audio_frames:
-                    frame.pts = None  # ważne!
+                    frame.pts = None
                     container.mux(stream.encode(frame))
                 container.mux(stream.encode())
                 container.close()
                 audio_path = f.name
 
-            with st.spinner("⏳ Przesyłam do AI..."):
+            # Transkrypcja
+            with st.spinner("⏳ Przesyłanie audio do transkrypcji..."):
                 with open(audio_path, "rb") as audio_file:
-                    transcript_response = openai.audio.transcriptions.create(
+                    transcript_response = client.audio.transcriptions.create(
                         model="whisper-1",
                         file=audio_file
                     )
-                    transcript = transcript_response.text
+                    transcript = transcript_response["text"]
 
-                # Tworzenie promptu
+            # Prompt do GPT-4
+            with st.spinner("🧠 Generuję sugestie AI..."):
                 prompt = f"""
 Jesteś AI-asystentem handlowca. Analizujesz rozmowę z klientem.
 
 Na podstawie rozmowy:
-- Podaj 2–3 pytania, które warto zadać klientowi.
-- Zasugeruj 1 konkretną zmianę w zachowaniu handlowca (coaching).
-- Zasugeruj działanie follow-up.
+1. Podaj 2–3 pytania, które warto zadać klientowi.
+2. Zasugeruj 1 konkretną zmianę w zachowaniu handlowca (coaching).
+3. Zasugeruj działanie follow-up.
 
 Rozmowa:
 {transcript}
 """
 
-                completion = openai.chat.completions.create(
+                completion = client.chat.completions.create(
                     model="gpt-4",
                     messages=[{"role": "user", "content": prompt}]
                 )
                 result = completion.choices[0].message.content
 
+            # Wyświetlenie wyniku
             st.success("Gotowe!")
             st.markdown("### 💡 Sugestie AI")
             st.write(result)
         else:
-            st.warning("Brak zarejestrowanych danych audio.")
+            st.warning("Brak danych audio do przetworzenia.")
